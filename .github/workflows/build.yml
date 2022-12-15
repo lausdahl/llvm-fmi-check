@@ -14,11 +14,11 @@ jobs:
 
       - name: Cache LLVM and Clang
         id: cache-llvm
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             C:/Program Files/LLVM
-            ./llvm
+            ${{ runner.temp }}/llvm
           key: llvm-15.0
 
       - name: Install LLVM and Clang
