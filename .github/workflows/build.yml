@@ -26,13 +26,14 @@ jobs:
         with:
           version: "15.0"
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
+          directory: ${{ runner.temp }}/llvm
 
       - uses: actions/checkout@v3
         with:
           submodules: recursive
 
       - name: show llvm
-        run: ls $LLVM_PATH/bin/
+        run: ls $LLVM_PATH
 
       - name: Cmake
         run: cmake -S. -B build -DLT_LLVM_INSTALL_DIR=${{ env.LLVM_PATH }} -D CMAKE_CXX_COMPILER=$LLVM_PATH/bin/clang++ -D CMAKE_C_COMPILER=$LLVM_PATH/bin/clang
