@@ -1,0 +1,31 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: "15.0"
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+     - name: Cmake
+       run: cmake -S. -B build -DLT_LLVM_INSTALL_DIR=${{ env.LLVM_PATH }}
+
+     - name: Make Example
+       run: make -C build
+
+     - name: Make Example LLVM-IR
+       run: make -C build sim_dis sim_c_dis

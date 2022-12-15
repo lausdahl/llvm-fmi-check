@@ -1,0 +1,3 @@
+[submodule "tools/llvmutil"]
+	path = tools/llvmutil
+	url = https://github.com/lausdahl/llvm-ir-cmake-utils.git
