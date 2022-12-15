@@ -12,17 +12,27 @@ jobs:
 
       - uses: lukka/get-cmake@latest
 
+      - name: Cache LLVM and Clang
+        id: cache-llvm
+        uses: actions/cache@v2
+        with:
+          path: |
+            C:/Program Files/LLVM
+            ./llvm
+          key: llvm-15.0
+
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: "15.0"
+          cached: ${{ steps.cache-llvm.outputs.cache-hit }}
 
       - uses: actions/checkout@v3
         with:
           submodules: recursive
 
       - name: Cmake
-        run: cmake -S. -B build -DLT_LLVM_INSTALL_DIR=${{ env.LLVM_PATH }}
+        run: cmake -S. -B build -DLT_LLVM_INSTALL_DIR=${{ env.LLVM_PATH }} -D CMAKE_CXX_COMPILER="${{ env.LLVM_PATH }}/bin/clang++" -D CMAKE_C_COMPILER="${{ env.LLVM_PATH }}/bin/clang"
 
       - name: Make Example
         run: make -C build
