@@ -79,8 +79,8 @@ include_directories(${PROJECT_SOURCE_DIR}
 
 
 add_library(sim_c STATIC
-${intocpsfmi-src}/jnifmuapi/src/main/native/src/sim_support.c
-    libs/uri.c
+    ${CMAKE_BINARY_DIR}/intocpsfmi-src/jnifmuapi/src/main/native/src/sim_support.c
+    ${PROJECT_SOURCE_DIR}/libs/uri.c
 )
 
 
