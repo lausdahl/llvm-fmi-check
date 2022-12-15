@@ -21,11 +21,11 @@ jobs:
         with:
           submodules: recursive
 
-     - name: Cmake
-       run: cmake -S. -B build -DLT_LLVM_INSTALL_DIR=${{ env.LLVM_PATH }}
+      - name: Cmake
+        run: cmake -S. -B build -DLT_LLVM_INSTALL_DIR=${{ env.LLVM_PATH }}
 
-     - name: Make Example
-       run: make -C build
+      - name: Make Example
+        run: make -C build
 
-     - name: Make Example LLVM-IR
-       run: make -C build sim_dis sim_c_dis
+      - name: Make Example LLVM-IR
+        run: make -C build sim_dis sim_c_dis
