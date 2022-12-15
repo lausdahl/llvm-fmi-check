@@ -31,6 +31,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: show llvm
+        run: ls ${{ env.LLVM_PATH }}/bin/
+
       - name: Cmake
         run: cmake -S. -B build -DLT_LLVM_INSTALL_DIR=${{ env.LLVM_PATH }} -D CMAKE_CXX_COMPILER="${{ env.LLVM_PATH }}/bin/clang++" -D CMAKE_C_COMPILER="${{ env.LLVM_PATH }}/bin/clang"
 
