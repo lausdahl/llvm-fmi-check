@@ -130,8 +130,8 @@ set_target_properties(sim PROPERTIES LINKER_LANGUAGE CXX)
 #llvmir_attach_opt_pass_target(sim_pass1 sim_bc -mem2reg)
 
 
-set_target_properties(sim PROPERTIES COMPILE_OPTIONS "-isysroot;/Library/Developer/CommandLineTools/SDKs/MacOSX13.0.sdk")
-set_target_properties(sim_c PROPERTIES COMPILE_OPTIONS "-isysroot;/Library/Developer/CommandLineTools/SDKs/MacOSX13.0.sdk")
+set_target_properties(sim PROPERTIES COMPILE_OPTIONS "-isysroot;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk")
+set_target_properties(sim_c PROPERTIES COMPILE_OPTIONS "-isysroot;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk")
 
 
 target_include_directories(sim PRIVATE ${CMAKE_BINARY_DIR}/libzip/lib -I ${CMAKE_BINARY_DIR}/_deps/libzip-build )
