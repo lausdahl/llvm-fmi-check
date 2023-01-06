@@ -37,3 +37,9 @@ add_library(FmiCheckHE SHARED FmiCheckHE.cpp)
 # behaviour on Linux)
 target_link_libraries(FmiCheckHE
   "$<$<PLATFORM_ID:Darwin>:-undefined dynamic_lookup>")
+
+
+add_executable(fmi-check FmiCheckHE.cpp FmiCheckMain.cpp)
+target_link_libraries(fmi-check
+        LLVMCore LLVMPasses LLVMIRReader LLVMSupport
+        )

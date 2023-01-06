@@ -19,6 +19,7 @@
 //
 // License: MIT
 //=============================================================================
+#include "FmiCheck.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
@@ -39,150 +40,181 @@ using namespace llvm;
 // everything in an anonymous namespace.
 namespace {
 
-  std::string FMU[] = {
-    "DUMMY",
-    /***************************************************
-    Common Functions
-    ****************************************************/
-    "getTypesPlatform",
-    "getVersion",
-    "setDebugLogging",
-    "instantiate",
-    "freeInstance",
-    "setupExperiment",
-    "enterInitializationMode",
-    "exitInitializationMode",
-    "terminate",
-    "reset",
-    "getReal",
-    "getInteger",
-    "getBoolean",
-    "getString",
-    "setReal",
-    "setInteger",
-    "setBoolean",
-    "setString",
-    "getFMUstate",
-    "setFMUstate",
-    "freeFMUstate",
-    "serializedFMUstateSize",
-    "serializeFMUstate",
-    "deSerializeFMUstate",
-    "getDirectionalDerivative",
-    /***************************************************
-    Functions for FMI2 for Co-Simulation
-    ****************************************************/
-    "setRealInputDerivatives",
-    "getRealOutputDerivatives",
-    "doStep",
-    "cancelStep",
-    "getStatus",
-    "getRealStatus",
-    "getIntegerStatus",
-    "getBooleanStatus",
-    "getStringStatus",
+    std::string FMU[] = {
+            "DUMMY",
+            /***************************************************
+            Common Functions
+            ****************************************************/
+            "getTypesPlatform",
+            "getVersion",
+            "setDebugLogging",
+            "instantiate",
+            "freeInstance",
+            "setupExperiment",
+            "enterInitializationMode",
+            "exitInitializationMode",
+            "terminate",
+            "reset",
+            "getReal",
+            "getInteger",
+            "getBoolean",
+            "getString",
+            "setReal",
+            "setInteger",
+            "setBoolean",
+            "setString",
+            "getFMUstate",
+            "setFMUstate",
+            "freeFMUstate",
+            "serializedFMUstateSize",
+            "serializeFMUstate",
+            "deSerializeFMUstate",
+            "getDirectionalDerivative",
+            /***************************************************
+            Functions for FMI2 for Co-Simulation
+            ****************************************************/
+            "setRealInputDerivatives",
+            "getRealOutputDerivatives",
+            "doStep",
+            "cancelStep",
+            "getStatus",
+            "getRealStatus",
+            "getIntegerStatus",
+            "getBooleanStatus",
+            "getStringStatus",
 
-    //INTO CPS specific
-    "getMaxStepsize",
-    /***************************************************
-    Functions for FMI2 for Model Exchange
-    ****************************************************/
-    "enterEventMode",
-    "newDiscreteStates",
-    "enterContinuousTimeMode",
-    "completedIntegratorStep",
-    "setTime",
-    "setContinuousStates",
-    "getDerivatives",
-    "getEventIndicators",
-    "getContinuousStates",
-    "getNominalsOfContinuousStates",
-};
+            //INTO CPS specific
+            "getMaxStepsize",
+            /***************************************************
+            Functions for FMI2 for Model Exchange
+            ****************************************************/
+            "enterEventMode",
+            "newDiscreteStates",
+            "enterContinuousTimeMode",
+            "completedIntegratorStep",
+            "setTime",
+            "setContinuousStates",
+            "getDerivatives",
+            "getEventIndicators",
+            "getContinuousStates",
+            "getNominalsOfContinuousStates",
+    };
 
 // This method implements what the pass does
-void visitor(Module &M) {
-    errs() << "Module: "<< M.getName() << "\n";
-    for (auto &Func : M) {
-      for (auto &BB : Func) {
-        for (auto &Ins : BB) {
+    void visitor(Module &M) {
+        errs() << "Module: " << M.getName() << "\n";
+        for (auto &Func: M) {
+            for (auto &BB: Func) {
+                for (auto &Ins: BB) {
 
-          if (auto *gep = dyn_cast<GEPOperator>(&Ins)) {
-            if (auto tp = gep->getSourceElementType()) {
-              if (tp->isStructTy() && tp->getStructName().equals("struct.FMU")) {
-                auto op = gep->getOperand(gep->getNumIndices());
-                if (ConstantInt* CI = dyn_cast<ConstantInt>(op)) {
-                  if (CI->getBitWidth() <= 32) {
-                    int i = CI->getSExtValue();
-                    errs() << "getStructName: " << tp->getStructName() << " " << *op << " " << FMU[i] << "\n";
-                  }
+                    if(auto *invoke = dyn_cast<InvokeInst>(&Ins)){
+                        int i =0;
+                    }
+
+                    if (auto *gep = dyn_cast<GEPOperator>(&Ins)) {
+                        /*
+                         * <result> = getelementptr <ty>, ptr <ptrval>{, [inrange] <ty> <idx>}*
+                         * <result> = getelementptr inbounds <ty>, ptr <ptrval>{, [inrange] <ty> <idx>}*
+                         * <result> = getelementptr <ty>, <N x ptr> <ptrval>, [inrange] <vector index type> <idx>
+                         *
+                         *  %61 = load %class.Fmi2Comp*, %class.Fmi2Comp** %9, align 8
+                         *  %62 = getelementptr inbounds %class.Fmi2Comp, %class.Fmi2Comp* %61, i32 0, i32 1
+                         *  ty = %class.Fmi2Comp
+                         *  ptr = %class.Fmi2Comp* %61
+                         *  ptr index = i32 0
+                         *  field index = i32 1
+                         * */
+
+
+
+                        if (auto tp = gep->getSourceElementType()) {
+                            if (tp->isStructTy() && tp->getStructName().equals("struct.FMU")) {
+
+
+                                //GEP has two operants lets consider f[0].field2 vs f[0].field1
+                                // first is the index though the pointer i.e. [0]
+                                // second is the field i.e. field2 and field1 assuming its declared as field1, field2 => 0 and 1
+                                if (gep->getNumIndices() > 1) {
+
+                                    auto instanceOp = gep->getOperand(gep->getNumIndices());
+                                    if (ConstantInt *instanceCI = dyn_cast<ConstantInt>(instanceOp)) {
+                                        if (instanceOp->getType()->getTypeID() == Type::TypeID::StructTyID) {
+                                            errs() << instanceOp << "\n";
+                                        }
+//                                        instanceCI->getType()
+//
+                                        auto op = gep->getOperand(gep->getNumIndices());
+                                        if (ConstantInt *CI = dyn_cast<ConstantInt>(op)) {
+                                            if (CI->getBitWidth() <= 32) {
+                                                int i = CI->getSExtValue();
+                                                errs() << "getStructName: " << tp->getStructName() << " " << *op << " "
+                                                       << FMU[i] << " on instance " << instanceCI->getSExtValue()
+                                                       << "\n";
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // If this is a call instruction then CB will be not null.
+                    auto *CB = dyn_cast<CallBase>(&Ins);
+                    if (nullptr == CB) {
+                        continue;
+                    }
+
+                    if (CB->isIndirectCall()) {
+                        /* errs() << "Call: "<< CB->getOpcode() << " " << CB->getOpcodeName() << " " << CB->getNumOperands() << "\n"; */
+                        for (auto op = CB->op_begin(); op != CB->op_end(); op++) {
+                            /* errs() << "Operand: "<< *op << op->getOperandNo() << "\n"; */
+                        }
+                    }
                 }
-              }
             }
-          }
-
-          // If this is a call instruction then CB will be not null.
-          auto *CB = dyn_cast<CallBase>(&Ins);
-          if (nullptr == CB) {
-            continue;
-          }
-
-          if (CB->isIndirectCall()) {
-            /* errs() << "Call: "<< CB->getOpcode() << " " << CB->getOpcodeName() << " " << CB->getNumOperands() << "\n"; */
-            for (auto op = CB->op_begin(); op != CB->op_end(); op++) {
-              /* errs() << "Operand: "<< *op << op->getOperandNo() << "\n"; */
-            }
-          }
         }
-      }
+        /* errs() << "(llvm-tutor) Hello from: "<< F.getName() << "\n"; */
+        /* errs() << "(llvm-tutor)   number of arguments: " << F.arg_size() << "\n"; */
     }
-    /* errs() << "(llvm-tutor) Hello from: "<< F.getName() << "\n"; */
-    /* errs() << "(llvm-tutor)   number of arguments: " << F.arg_size() << "\n"; */
-}
 
-// New PM implementation
-struct FmiCheck : PassInfoMixin<FmiCheck> {
-  // Main entry point, takes IR unit to run the pass on (&F) and the
-  // corresponding pass manager (to be queried if need be)
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
-    visitor(M);
-    return PreservedAnalyses::all();
-  }
-
-  // Without isRequired returning true, this pass will be skipped for functions
-  // decorated with the optnone LLVM attribute. Note that clang -O0 decorates
-  // all functions with optnone.
-  static bool isRequired() { return true; }
-};
 
 // Legacy PM implementation
-struct LegacyFmiCheck : public FunctionPass {
-  static char ID;
-  LegacyFmiCheck() : FunctionPass(ID) {}
-  // Main entry point - the name conveys what unit of IR this is to be run on.
-  bool runOnFunction(Function &F) override {
-    /* visitor(F); */
-    // Doesn't modify the input unit of IR, hence 'false'
-    return false;
-  }
-};
+    struct LegacyFmiCheck : public FunctionPass {
+        static char ID;
+
+        LegacyFmiCheck() : FunctionPass(ID) {}
+
+        // Main entry point - the name conveys what unit of IR this is to be run on.
+        bool runOnFunction(Function &F) override {
+            /* visitor(F); */
+            // Doesn't modify the input unit of IR, hence 'false'
+            return false;
+        }
+    };
 } // namespace
+
+PreservedAnalyses FMIC::FmiCheck::run(Module &M, ModuleAnalysisManager &) {
+    visitor(M);
+    return PreservedAnalyses::all();
+}
+
 
 //-----------------------------------------------------------------------------
 // New PM Registration
 //-----------------------------------------------------------------------------
 llvm::PassPluginLibraryInfo getFmiCheckPluginInfo() {
-  return {LLVM_PLUGIN_API_VERSION, "FmiCheck", LLVM_VERSION_STRING,
-          [](PassBuilder &PB) {
-            PB.registerPipelineParsingCallback(
-                [](StringRef Name, ModulePassManager &MPM,
-                   ArrayRef<PassBuilder::PipelineElement>) {
-                  if (Name == "fmi-check") {
-                    MPM.addPass(FmiCheck());
-                    return true;
-                  }
-                  return false;
-                });
-          }};
+    return {LLVM_PLUGIN_API_VERSION, "FmiCheck", LLVM_VERSION_STRING,
+            [](PassBuilder &PB) {
+                PB.registerPipelineParsingCallback(
+                        [](StringRef Name, ModulePassManager &MPM,
+                           ArrayRef<PassBuilder::PipelineElement>) {
+                            if (Name == "fmi-check") {
+                                MPM.addPass(FMIC::FmiCheck(llvm::errs()));
+                                return true;
+                            }
+                            return false;
+                        });
+            }};
 }
 
 // This is the core interface for pass plugins. It guarantees that 'opt' will
@@ -190,7 +222,7 @@ llvm::PassPluginLibraryInfo getFmiCheckPluginInfo() {
 // command line, i.e. via '-passes=hello-world'
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
-  return getFmiCheckPluginInfo();
+    return getFmiCheckPluginInfo();
 }
 //
 //-----------------------------------------------------------------------------
@@ -204,7 +236,7 @@ char LegacyFmiCheck::ID = 0;
 // recognize LegacyHelloWorld when added to the pass pipeline on the command
 // line, i.e.  via '--legacy-hello-world'
 static RegisterPass<LegacyFmiCheck>
-    X("legacy-fmi-check", "Fmi Check Pass",
-      true, // This pass doesn't modify the CFG => true
-      false // This pass is not a pure analysis pass => false
-    );
+        X("legacy-fmi-check", "Fmi Check Pass",
+          true, // This pass doesn't modify the CFG => true
+          false // This pass is not a pure analysis pass => false
+);
