@@ -28,6 +28,7 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Demangle/Demangle.h"
 #include <string>
 #include <unordered_map>
 
@@ -40,157 +41,200 @@ using namespace llvm;
 // everything in an anonymous namespace.
 namespace {
 
-    std::string FMU[] = {
-            "DUMMY",
-            /***************************************************
+std::string FMU[] = {
+    "DUMMY",
+    /***************************************************
             Common Functions
             ****************************************************/
-            "getTypesPlatform",
-            "getVersion",
-            "setDebugLogging",
-            "instantiate",
-            "freeInstance",
-            "setupExperiment",
-            "enterInitializationMode",
-            "exitInitializationMode",
-            "terminate",
-            "reset",
-            "getReal",
-            "getInteger",
-            "getBoolean",
-            "getString",
-            "setReal",
-            "setInteger",
-            "setBoolean",
-            "setString",
-            "getFMUstate",
-            "setFMUstate",
-            "freeFMUstate",
-            "serializedFMUstateSize",
-            "serializeFMUstate",
-            "deSerializeFMUstate",
-            "getDirectionalDerivative",
-            /***************************************************
+    "getTypesPlatform",
+    "getVersion",
+    "setDebugLogging",
+    "instantiate",
+    "freeInstance",
+    "setupExperiment",
+    "enterInitializationMode",
+    "exitInitializationMode",
+    "terminate",
+    "reset",
+    "getReal",
+    "getInteger",
+    "getBoolean",
+    "getString",
+    "setReal",
+    "setInteger",
+    "setBoolean",
+    "setString",
+    "getFMUstate",
+    "setFMUstate",
+    "freeFMUstate",
+    "serializedFMUstateSize",
+    "serializeFMUstate",
+    "deSerializeFMUstate",
+    "getDirectionalDerivative",
+    /***************************************************
             Functions for FMI2 for Co-Simulation
             ****************************************************/
-            "setRealInputDerivatives",
-            "getRealOutputDerivatives",
-            "doStep",
-            "cancelStep",
-            "getStatus",
-            "getRealStatus",
-            "getIntegerStatus",
-            "getBooleanStatus",
-            "getStringStatus",
+    "setRealInputDerivatives",
+    "getRealOutputDerivatives",
+    "doStep",
+    "cancelStep",
+    "getStatus",
+    "getRealStatus",
+    "getIntegerStatus",
+    "getBooleanStatus",
+    "getStringStatus",
 
-            //INTO CPS specific
-            "getMaxStepsize",
-            /***************************************************
+    //INTO CPS specific
+    "getMaxStepsize",
+    /***************************************************
             Functions for FMI2 for Model Exchange
             ****************************************************/
-            "enterEventMode",
-            "newDiscreteStates",
-            "enterContinuousTimeMode",
-            "completedIntegratorStep",
-            "setTime",
-            "setContinuousStates",
-            "getDerivatives",
-            "getEventIndicators",
-            "getContinuousStates",
-            "getNominalsOfContinuousStates",
-    };
+    "enterEventMode",
+    "newDiscreteStates",
+    "enterContinuousTimeMode",
+    "completedIntegratorStep",
+    "setTime",
+    "setContinuousStates",
+    "getDerivatives",
+    "getEventIndicators",
+    "getContinuousStates",
+    "getNominalsOfContinuousStates",
+};
+
+std::map<Value*, Value*> storeMap;
+std::map<Value*, Value*> loadMap;
+std::set<Value*> gepSet;
+
+void dumpStoreMap(){
+    errs() << "==== Stores map ====\n";
+    for(std::map<Value*, Value*>::iterator it = storeMap.begin(); it!=storeMap.end(); it++){
+        errs() << "Value : ";
+        it->first->dump();
+        errs() << " points to : ";
+        it->second->dump();
+    }
+}
+
+void dumpLoadMap(){
+    errs() << "==== Loads map ==== \n";
+    for(std::map<Value*, Value*>::iterator it = loadMap.begin(); it!=loadMap.end(); it++){
+        errs() << "Value : ";
+        it->first->dump();
+        errs() << " points to : ";
+        it->second->dump();
+    }
+}
 
 // This method implements what the pass does
-    void visitor(Module &M) {
-        errs() << "Module: " << M.getName() << "\n";
-        for (auto &Func: M) {
-            for (auto &BB: Func) {
-                for (auto &Ins: BB) {
+void visitor(Module &M) {
 
-                    if(auto *invoke = dyn_cast<InvokeInst>(&Ins)){
-                        int i =0;
-                    }
+    // iterate over functions in module - TBD fix order?
+    for (auto &Func: M) {
 
-                    if (auto *gep = dyn_cast<GEPOperator>(&Ins)) {
-                        /*
-                         * <result> = getelementptr <ty>, ptr <ptrval>{, [inrange] <ty> <idx>}*
-                         * <result> = getelementptr inbounds <ty>, ptr <ptrval>{, [inrange] <ty> <idx>}*
-                         * <result> = getelementptr <ty>, <N x ptr> <ptrval>, [inrange] <vector index type> <idx>
-                         *
-                         *  %61 = load %class.Fmi2Comp*, %class.Fmi2Comp** %9, align 8
-                         *  %62 = getelementptr inbounds %class.Fmi2Comp, %class.Fmi2Comp* %61, i32 0, i32 1
-                         *  ty = %class.Fmi2Comp
-                         *  ptr = %class.Fmi2Comp* %61
-                         *  ptr index = i32 0
-                         *  field index = i32 1
-                         * */
+        // disregard function builtins and declarations
+        if(Func.isIntrinsic() || Func.isDeclaration()){
+            continue;
+        }
 
+        errs() << "Function: " << demangle(Func.getName().str()) << "\n";
 
+        // iterate over basic blocks in function
+        for (auto &BB: Func) {
 
-                        if (auto tp = gep->getSourceElementType()) {
-                            if (tp->isStructTy() && tp->getStructName().equals("struct.FMU")) {
+            // iterate over instructions in basic block
+            for (auto &Ins: BB) {
 
+                if(auto* inst = dyn_cast<StoreInst>(&Ins)){
+                    Value* valOp = inst->getValueOperand()->stripPointerCasts();
+                    Value* pointOp = inst->getPointerOperand()->stripPointerCasts();
+                    storeMap[pointOp] = valOp;
+                }
 
-                                //GEP has two operants lets consider f[0].field2 vs f[0].field1
-                                // first is the index though the pointer i.e. [0]
-                                // second is the field i.e. field2 and field1 assuming its declared as field1, field2 => 0 and 1
-                                if (gep->getNumIndices() > 1) {
+                if(auto* inst = dyn_cast<LoadInst>(&Ins)){
+                    Value* pointOp = inst->getPointerOperand()->stripPointerCasts();
+                    Value* loadVal = dyn_cast<Value>(inst);
+                    loadMap[loadVal] = pointOp;
+                }
 
-                                    auto instanceOp = gep->getOperand(gep->getNumIndices());
-                                    if (ConstantInt *instanceCI = dyn_cast<ConstantInt>(instanceOp)) {
-                                        if (instanceOp->getType()->getTypeID() == Type::TypeID::StructTyID) {
-                                            errs() << instanceOp << "\n";
-                                        }
-//                                        instanceCI->getType()
-//
-                                        auto op = gep->getOperand(gep->getNumIndices());
-                                        if (ConstantInt *CI = dyn_cast<ConstantInt>(op)) {
-                                            if (CI->getBitWidth() <= 32) {
-                                                int i = CI->getSExtValue();
-                                                errs() << "getStructName: " << tp->getStructName() << " " << *op << " "
-                                                       << FMU[i] << " on instance " << instanceCI->getSExtValue()
-                                                       << "\n";
-                                            }
+                if (auto *inst = dyn_cast<GEPOperator>(&Ins)) {
+                    Value *gepVal = dyn_cast<Value>(inst);
+                    gepSet.insert(gepVal);
+
+                    if (auto tp = inst->getSourceElementType()) {
+                        if (tp->isStructTy() && tp->getStructName().equals("struct.FMU")) {
+                            if (inst->getNumIndices() > 1) {
+                                auto instanceOp = inst->getOperand(inst->getNumIndices());
+                                if (ConstantInt *instanceCI = dyn_cast<ConstantInt>(instanceOp)) {
+                                    if (instanceOp->getType()->getTypeID() == Type::TypeID::StructTyID) {
+                                        errs() << instanceOp << "\n";
+                                    }
+                                    auto op = inst->getOperand(inst->getNumIndices());
+                                    if (ConstantInt *CI = dyn_cast<ConstantInt>(op)) {
+                                        if (CI->getBitWidth() <= 32) {
+                                            int i = CI->getSExtValue();
+                                            errs() << "getStructName: " << tp->getStructName() << " " << *op << " "
+                                                << FMU[i] << " on instance " << instanceCI->getSExtValue()
+                                                << "\n";
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    // If this is a call instruction then CB will be not null.
-                    auto *CB = dyn_cast<CallBase>(&Ins);
-                    if (nullptr == CB) {
-                        continue;
-                    }
+                if (auto *inst = dyn_cast<CallBase>(&Ins)) {
+                    if (inst->isIndirectCall()) {
+                        errs() << "Indirect Call: " << "\n";
+                        /* inst->dump(); */
+                        /* inst->getCalledOperand()->dump(); */
 
-                    if (CB->isIndirectCall()) {
-                        /* errs() << "Call: "<< CB->getOpcode() << " " << CB->getOpcodeName() << " " << CB->getNumOperands() << "\n"; */
-                        for (auto op = CB->op_begin(); op != CB->op_end(); op++) {
-                            /* errs() << "Operand: "<< *op << op->getOperandNo() << "\n"; */
+                        if(LoadInst* linst = dyn_cast<LoadInst>(inst->getCalledOperand())) {
+                            std::map<Value*, Value*>::iterator it1 = loadMap.find(linst);
+                            if (it1 != loadMap.end()) {
+                                errs() << "found load " << it1->second->getName() << "\n";
+                                Value* addr = it1->second;
+                                /* addr->dump(); */
+
+                                std::map<Value*, Value*>::iterator it2 = storeMap.find(addr);
+                                if (it2 != storeMap.end()) {
+                                    errs() << "found store\n";
+                                    if (Function *func = dyn_cast<Function>(it2->second)) {
+                                        errs() << "Indirect Function: " << func->getName() << "\n";
+                                    }
+                                }
+
+                                std::set<Value*>::iterator it3 = gepSet.find(addr);
+                                if (it3 != gepSet.end()) {
+                                    errs() << "found gep\n";
+                                    if (Function *func = dyn_cast<Function>(*it3)) {
+                                        errs() << "Indirect Function: " << func->getName() << "\n";
+                                    }
+                                }
+                            }
                         }
+                        errs() << "\n";
                     }
                 }
             }
         }
-        /* errs() << "(llvm-tutor) Hello from: "<< F.getName() << "\n"; */
-        /* errs() << "(llvm-tutor)   number of arguments: " << F.arg_size() << "\n"; */
     }
+}
 
 
 // Legacy PM implementation
-    struct LegacyFmiCheck : public FunctionPass {
-        static char ID;
+struct LegacyFmiCheck : public FunctionPass {
+    static char ID;
 
-        LegacyFmiCheck() : FunctionPass(ID) {}
+    LegacyFmiCheck() : FunctionPass(ID) {}
 
-        // Main entry point - the name conveys what unit of IR this is to be run on.
-        bool runOnFunction(Function &F) override {
-            /* visitor(F); */
-            // Doesn't modify the input unit of IR, hence 'false'
-            return false;
-        }
-    };
+    // Main entry point - the name conveys what unit of IR this is to be run on.
+    bool runOnFunction(Function &F) override {
+        /* visitor(F); */
+        // Doesn't modify the input unit of IR, hence 'false'
+        return false;
+    }
+};
 } // namespace
 
 PreservedAnalyses FMIC::FmiCheck::run(Module &M, ModuleAnalysisManager &) {
@@ -204,17 +248,17 @@ PreservedAnalyses FMIC::FmiCheck::run(Module &M, ModuleAnalysisManager &) {
 //-----------------------------------------------------------------------------
 llvm::PassPluginLibraryInfo getFmiCheckPluginInfo() {
     return {LLVM_PLUGIN_API_VERSION, "FmiCheck", LLVM_VERSION_STRING,
-            [](PassBuilder &PB) {
-                PB.registerPipelineParsingCallback(
-                        [](StringRef Name, ModulePassManager &MPM,
-                           ArrayRef<PassBuilder::PipelineElement>) {
-                            if (Name == "fmi-check") {
-                                MPM.addPass(FMIC::FmiCheck(llvm::errs()));
-                                return true;
-                            }
-                            return false;
-                        });
-            }};
+        [](PassBuilder &PB) {
+            PB.registerPipelineParsingCallback(
+                    [](StringRef Name, ModulePassManager &MPM,
+                       ArrayRef<PassBuilder::PipelineElement>) {
+                        if (Name == "fmi-check") {
+                            MPM.addPass(FMIC::FmiCheck(llvm::errs()));
+                            return true;
+                        }
+                        return false;
+                    });
+        }};
 }
 
 // This is the core interface for pass plugins. It guarantees that 'opt' will
@@ -236,7 +280,7 @@ char LegacyFmiCheck::ID = 0;
 // recognize LegacyHelloWorld when added to the pass pipeline on the command
 // line, i.e.  via '--legacy-hello-world'
 static RegisterPass<LegacyFmiCheck>
-        X("legacy-fmi-check", "Fmi Check Pass",
-          true, // This pass doesn't modify the CFG => true
-          false // This pass is not a pure analysis pass => false
-);
+X("legacy-fmi-check", "Fmi Check Pass",
+  true, // This pass doesn't modify the CFG => true
+  false // This pass is not a pure analysis pass => false
+  );
