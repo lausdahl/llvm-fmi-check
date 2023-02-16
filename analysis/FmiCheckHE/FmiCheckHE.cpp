@@ -29,6 +29,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Demangle/Demangle.h"
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 
@@ -108,9 +109,9 @@ std::set<Value*> gepSet;
 void dumpStoreMap(){
     errs() << "==== Stores map ====\n";
     for(std::map<Value*, Value*>::iterator it = storeMap.begin(); it!=storeMap.end(); it++){
-        errs() << "Value : ";
+        errs() << "Value : " << it ->first;
         it->first->dump();
-        errs() << " points to : ";
+        errs() << " points to : " << it->second;
         it->second->dump();
     }
 }
@@ -118,9 +119,9 @@ void dumpStoreMap(){
 void dumpLoadMap(){
     errs() << "==== Loads map ==== \n";
     for(std::map<Value*, Value*>::iterator it = loadMap.begin(); it!=loadMap.end(); it++){
-        errs() << "Value : ";
+        errs() << "Value : " << it->first;
         it->first->dump();
-        errs() << " points to : ";
+        errs() << " points to : " << it->second;
         it->second->dump();
     }
 }
@@ -186,15 +187,15 @@ void visitor(Module &M) {
                 if (auto *inst = dyn_cast<CallBase>(&Ins)) {
                     if (inst->isIndirectCall()) {
                         errs() << "Indirect Call: " << "\n";
-                        /* inst->dump(); */
-                        /* inst->getCalledOperand()->dump(); */
+                        inst->dump();
+                        inst->getCalledOperand()->dump();
 
                         if(LoadInst* linst = dyn_cast<LoadInst>(inst->getCalledOperand())) {
                             std::map<Value*, Value*>::iterator it1 = loadMap.find(linst);
                             if (it1 != loadMap.end()) {
                                 errs() << "found load " << it1->second->getName() << "\n";
                                 Value* addr = it1->second;
-                                /* addr->dump(); */
+                                addr->dump();
 
                                 std::map<Value*, Value*>::iterator it2 = storeMap.find(addr);
                                 if (it2 != storeMap.end()) {
@@ -219,6 +220,8 @@ void visitor(Module &M) {
             }
         }
     }
+    dumpLoadMap();
+    dumpStoreMap();
 }
 
 
