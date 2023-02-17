@@ -104,7 +104,6 @@ std::string FMU[] = {
 
 std::map<Value*, Value*> storeMap;
 std::map<Value*, Value*> loadMap;
-std::set<Value*> gepSet;
 
 void dumpStoreMap(){
     errs() << "==== Stores map ====\n";
@@ -158,9 +157,6 @@ void visitor(Module &M) {
                 }
 
                 if (auto *inst = dyn_cast<GEPOperator>(&Ins)) {
-                    Value *gepVal = dyn_cast<Value>(inst);
-                    gepSet.insert(gepVal);
-
                     if (auto tp = inst->getSourceElementType()) {
                         if (tp->isStructTy() && tp->getStructName().equals("struct.FMU")) {
                             if (inst->getNumIndices() > 1) {
@@ -201,14 +197,6 @@ void visitor(Module &M) {
                                 if (it2 != storeMap.end()) {
                                     errs() << "found store\n";
                                     if (Function *func = dyn_cast<Function>(it2->second)) {
-                                        errs() << "Indirect Function: " << func->getName() << "\n";
-                                    }
-                                }
-
-                                std::set<Value*>::iterator it3 = gepSet.find(addr);
-                                if (it3 != gepSet.end()) {
-                                    errs() << "found gep\n";
-                                    if (Function *func = dyn_cast<Function>(*it3)) {
                                         errs() << "Indirect Function: " << func->getName() << "\n";
                                     }
                                 }
