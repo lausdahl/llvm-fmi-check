@@ -30,6 +30,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Demangle/Demangle.h"
 #include <cstdlib>
+#include <llvm/IR/Instructions.h>
 #include <string>
 #include <unordered_map>
 
@@ -184,36 +185,42 @@ void visitor(Module &M) {
                     if (inst->isIndirectCall()) {
                         errs() << "Indirect Call: " << "\n";
                         inst->dump();
-                        inst->getCalledOperand()->dump();
+                        bool reload = false;
 
                         if(LoadInst* linst = dyn_cast<LoadInst>(inst->getCalledOperand())) {
-                            std::map<Value*, Value*>::iterator it1 = loadMap.find(linst);
-                            if (it1 != loadMap.end()) {
-                                errs() << "found load " << it1->second->getName() << "\n";
-                                Value* addr = it1->second;
-                                addr->dump();
+                            do {
+                                reload = false;
+                                linst->dump();
+                                std::map<Value*, Value*>::iterator it1 = loadMap.find(linst);
+                                if (it1 != loadMap.end()) {
+                                    errs() << "found load " << it1->second->getName() << "\n";
+                                    Value* addr = it1->second;
+                                    addr->dump();
 
-                                std::map<Value*, Value*>::iterator it2 = storeMap.find(addr);
-                                if (it2 != storeMap.end()) {
-                                    errs() << "found store (Value address)\n";
-                                    if (Function *func = dyn_cast<Function>(it2->second)) {
-                                        errs() << "Indirect Function: " << func->getName() << "\n";
-                                    }
-                                } else {
-                                    for (auto const& elem : storeMap) {
-                                        Instruction* a = dyn_cast<Instruction>(addr);
-                                        Instruction* b = dyn_cast<Instruction>(elem.first);
-                                        if (a && b && a->isIdenticalTo(b)) {
-                                            errs() << "found store (Value isIdenticalTo)\n";
-                                            if (Function *func = dyn_cast<Function>(elem.second)) {
-                                                errs() << "Indirect Function: " << func->getName() << "\n";
+                                    std::map<Value*, Value*>::iterator it2 = storeMap.find(addr);
+                                    if (it2 != storeMap.end()) {
+                                        errs() << "found store (Value address)\n";
+                                        if (Function *func = dyn_cast<Function>(it2->second)) {
+                                            errs() << "Indirect Function: " << func->getName() << "\n";
+                                        }
+                                        if ((linst = dyn_cast<LoadInst>(it2->second))) {
+                                            reload = true;
+                                        }
+                                    } else {
+                                        for (auto const& elem : storeMap) {
+                                            Instruction* a = dyn_cast<Instruction>(addr);
+                                            Instruction* b = dyn_cast<Instruction>(elem.first);
+                                            if (a && b && a->isIdenticalTo(b)) {
+                                                errs() << "found store (Value isIdenticalTo)\n";
+                                                if (Function *func = dyn_cast<Function>(elem.second)) {
+                                                    errs() << "Indirect Function: " << func->getName() << "\n";
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
+                            } while (reload);
                         }
-                        errs() << "\n";
                     }
                 }
             }

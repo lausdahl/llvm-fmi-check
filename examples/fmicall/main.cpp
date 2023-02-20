@@ -41,19 +41,19 @@ int main(int argc, char *argv[]) {
     func_tbl.f2(2);
     func_tbl.f3(3);
 
-    /* func_t f1 = &foo; */
-    /* f1(1); */
-    /* func_t f2 = &bar; */
-    /* f2(2); */
-    /* func_t f3 = &baz; */
-    /* f3(3); */
+    func_t f1 = &foo;
+    f1(1);
+    func_t f2 = &bar;
+    f2(2);
+    func_t f3 = &baz;
+    f3(3);
 
-    /* func_t f = func_tbl.f1; */
-    /* f(1); */
-    /* f = func_tbl.f2; */
-    /* f(2); */
-    /* f = func_tbl.f3; */
-    /* f(3); */
+    func_t f = func_tbl.f1;
+    f(1);
+    f = func_tbl.f2;
+    f(2);
+    f = func_tbl.f3;
+    f(3);
 
     /* instance_t inst; */
     /* inst.ft = (func_tbl_t*)malloc(sizeof(func_tbl_t)); */
