@@ -85,8 +85,6 @@ add_library(sim_c STATIC
     ${PROJECT_SOURCE_DIR}/libs/uri.c
 )
 
-
-
 add_executable(sim
  #   ${intocpsfmi-src}/jnifmuapi/src/main/native/src/sim_support.c
  #   libs/uri.c
@@ -101,6 +99,13 @@ add_executable(sim
     libs/SimulationControl.cpp
     co-sim.cxx
     main.cpp)
+
+add_custom_target(copy)
+add_custom_command(TARGET copy PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E
+        copy ${PROJECT_SOURCE_DIR}/fmi2_annotate.h ${CMAKE_BINARY_DIR}/intocpsfmi-src/jnifmuapi/src/main/native/src/external/shared/fmi2.h
+)
+add_dependencies(sim_c copy)
 
 target_link_libraries(sim zip sim_c)
 target_compile_definitions(sim PRIVATE -DFMI_COSIMULATION)
@@ -148,7 +153,6 @@ llvmir_attach_bc_target(sim_c_bc sim_c)
 add_dependencies(sim_c sim_c_bc)
 llvmir_attach_disassemble_target(sim_c_dis sim_c_bc)
 add_dependencies(sim_c_dis sim_c_bc)
-
 
 
 #llvmir_attach_opt_pass_target(sim_pass1 sim_bc -mem2reg)

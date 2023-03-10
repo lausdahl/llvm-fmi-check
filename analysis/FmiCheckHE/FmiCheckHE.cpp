@@ -28,9 +28,13 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Demangle/Demangle.h"
 #include <cstdlib>
+#include <llvm/ADT/APInt.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/PassManager.h>
 #include <string>
 #include <unordered_map>
 
@@ -126,6 +130,24 @@ void dumpLoadMap(){
     }
 }
 
+void findGlobalAnnotations(Module &M) {
+
+    // first add direct function annotations to function objects
+    auto global_annos = M.getNamedGlobal("llvm.global.annotations");
+    if (global_annos) {
+        auto a = cast<ConstantArray>(global_annos->getOperand(0));
+        for (int i=0; i<a->getNumOperands(); i++) {
+            auto e = cast<ConstantStruct>(a->getOperand(i));
+            if (auto fn = dyn_cast<Function>(e->getOperand(0))) {
+                auto anno = (cast<ConstantDataArray>(e->getOperand(1)->getOperand(0)))->getAsCString();
+                if (anno == "simulate") {
+                    fn->addFnAttr(anno);
+                }
+            }
+        }
+    }
+}
+
 // This method implements what the pass does
 void visitor(Module &M) {
 
@@ -137,6 +159,11 @@ void visitor(Module &M) {
             continue;
         }
 
+        /* if (demangle(Func.getName().str()) != "simulate(char const*)") { */
+
+        /*     continue; */
+        /* } */
+
         errs() << "Function: " << demangle(Func.getName().str()) << "\n";
 
         // iterate over basic blocks in function
@@ -145,89 +172,23 @@ void visitor(Module &M) {
             // iterate over instructions in basic block
             for (auto &Ins: BB) {
 
-                if(auto* inst = dyn_cast<StoreInst>(&Ins)){
-                    Value* valOp = inst->getValueOperand()->stripPointerCasts();
-                    Value* pointOp = inst->getPointerOperand()->stripPointerCasts();
-                    storeMap[pointOp] = valOp;
-                }
-
-                if(auto* inst = dyn_cast<LoadInst>(&Ins)){
-                    Value* pointOp = inst->getPointerOperand()->stripPointerCasts();
-                    Value* loadVal = dyn_cast<Value>(inst);
-                    loadMap[loadVal] = pointOp;
-                }
-
-                if (auto *inst = dyn_cast<GEPOperator>(&Ins)) {
-                    if (auto tp = inst->getSourceElementType()) {
-                        if (tp->isStructTy() && tp->getStructName().equals("struct.FMU")) {
-                            if (inst->getNumIndices() > 1) {
-                                auto instanceOp = inst->getOperand(inst->getNumIndices());
-                                if (ConstantInt *instanceCI = dyn_cast<ConstantInt>(instanceOp)) {
-                                    if (instanceOp->getType()->getTypeID() == Type::TypeID::StructTyID) {
-                                        errs() << instanceOp << "\n";
-                                    }
-                                    auto op = inst->getOperand(inst->getNumIndices());
-                                    if (ConstantInt *CI = dyn_cast<ConstantInt>(op)) {
-                                        if (CI->getBitWidth() <= 32) {
-                                            int i = CI->getSExtValue();
-                                            errs() << "getStructName: " << tp->getStructName() << " " << *op << " "
-                                                << FMU[i] << " on instance " << instanceCI->getSExtValue()
-                                                << "\n";
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 if (auto *inst = dyn_cast<CallBase>(&Ins)) {
                     if (inst->isIndirectCall()) {
-                        errs() << "Indirect Call: " << "\n";
-                        inst->dump();
-                        bool reload = false;
-
                         if(LoadInst* linst = dyn_cast<LoadInst>(inst->getCalledOperand())) {
-                            do {
-                                reload = false;
-                                linst->dump();
-                                std::map<Value*, Value*>::iterator it1 = loadMap.find(linst);
-                                if (it1 != loadMap.end()) {
-                                    errs() << "found load " << it1->second->getName() << "\n";
-                                    Value* addr = it1->second;
-                                    addr->dump();
-
-                                    std::map<Value*, Value*>::iterator it2 = storeMap.find(addr);
-                                    if (it2 != storeMap.end()) {
-                                        errs() << "found store (Value address)\n";
-                                        if (Function *func = dyn_cast<Function>(it2->second)) {
-                                            errs() << "Indirect Function: " << func->getName() << "\n";
-                                        }
-                                        if ((linst = dyn_cast<LoadInst>(it2->second))) {
-                                            reload = true;
-                                        }
-                                    } else {
-                                        for (auto const& elem : storeMap) {
-                                            Instruction* a = dyn_cast<Instruction>(addr);
-                                            Instruction* b = dyn_cast<Instruction>(elem.first);
-                                            if (a && b && a->isIdenticalTo(b)) {
-                                                errs() << "found store (Value isIdenticalTo)\n";
-                                                if (Function *func = dyn_cast<Function>(elem.second)) {
-                                                    errs() << "Indirect Function: " << func->getName() << "\n";
-                                                }
-                                            }
-                                        }
-                                    }
+                            auto* pointOp = linst->getPointerOperand();
+                            if (IntrinsicInst* iinst = dyn_cast<llvm::IntrinsicInst>(pointOp)) {
+                                if (iinst->getIntrinsicID() == Intrinsic::ptr_annotation){
+                                    auto carr = (ConstantArray *)iinst->getOperand(1);
+                                    auto str = ((ConstantDataArray *)(carr)->getOperand(0))->getAsCString();
+                                    errs() << str << "\n";
                                 }
-                            } while (reload);
+                            }
                         }
                     }
                 }
             }
         }
     }
-    dumpLoadMap();
-    dumpStoreMap();
 }
 
 
