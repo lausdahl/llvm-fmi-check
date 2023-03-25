@@ -110,6 +110,8 @@ std::string FMU[] = {
 std::map<Value*, Value*> storeMap;
 std::map<Value*, Value*> loadMap;
 
+std::map<Value*, int> instanceMap;
+
 void dumpStoreMap(){
     errs() << "==== Stores map ====\n";
     for(std::map<Value*, Value*>::iterator it = storeMap.begin(); it!=storeMap.end(); it++){
@@ -149,29 +151,25 @@ void findGlobalAnnotations(Module &M) {
 }
 
 // This method implements what the pass does
-void visitor(Module &M) {
+void visitor(Module &M, ModuleAnalysisManager &MAM) {
 
-    // iterate over functions in module - TBD fix order?
-    for (auto &Func: M) {
+    FunctionAnalysisManager &FAM =
+        MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+    for (auto &F: M) {
 
         // disregard function builtins and declarations
-        if(Func.isIntrinsic() || Func.isDeclaration()){
+        if(F.isIntrinsic() || F.isDeclaration()){
             continue;
         }
 
-        /* if (demangle(Func.getName().str()) != "simulate(char const*)") { */
+        /* errs() << "Function: " << demangle(Func.getName().str()) << "\n"; */
 
-        /*     continue; */
-        /* } */
+        // get the alias analysis results
+        AAResults &AA = FAM.getResult<AAManager>(F);
 
-        errs() << "Function: " << demangle(Func.getName().str()) << "\n";
-
-        // iterate over basic blocks in function
-        for (auto &BB: Func) {
-
-            // iterate over instructions in basic block
+        for (auto &BB: F) {
             for (auto &Ins: BB) {
-
                 if (auto *inst = dyn_cast<CallBase>(&Ins)) {
                     if (inst->isIndirectCall()) {
                         if(LoadInst* linst = dyn_cast<LoadInst>(inst->getCalledOperand())) {
@@ -181,6 +179,8 @@ void visitor(Module &M) {
                                     auto carr = (ConstantArray *)iinst->getOperand(1);
                                     auto str = ((ConstantDataArray *)(carr)->getOperand(0))->getAsCString();
                                     errs() << str << "\n";
+                                    errs() << AA.alias(inst, inst) << "\n";
+                                    errs() << AA.alias(inst, linst) << "\n";
                                 }
                             }
                         }
@@ -191,66 +191,51 @@ void visitor(Module &M) {
     }
 }
 
-
-// Legacy PM implementation
-struct LegacyFmiCheck : public FunctionPass {
-    static char ID;
-
-    LegacyFmiCheck() : FunctionPass(ID) {}
-
-    // Main entry point - the name conveys what unit of IR this is to be run on.
-    bool runOnFunction(Function &F) override {
-        /* visitor(F); */
-        // Doesn't modify the input unit of IR, hence 'false'
-        return false;
-    }
-};
 } // namespace
 
-PreservedAnalyses FMIC::FmiCheck::run(Module &M, ModuleAnalysisManager &) {
-    visitor(M);
-    return PreservedAnalyses::all();
+PreservedAnalyses FMIC::FmiCheck::run(Module &M, ModuleAnalysisManager &MAM) {
+    visitor(M, MAM);
+    return PreservedAnalyses::none();
 }
-
 
 //-----------------------------------------------------------------------------
 // New PM Registration
 //-----------------------------------------------------------------------------
-llvm::PassPluginLibraryInfo getFmiCheckPluginInfo() {
-    return {LLVM_PLUGIN_API_VERSION, "FmiCheck", LLVM_VERSION_STRING,
-        [](PassBuilder &PB) {
-            PB.registerPipelineParsingCallback(
-                    [](StringRef Name, ModulePassManager &MPM,
-                       ArrayRef<PassBuilder::PipelineElement>) {
-                        if (Name == "fmi-check") {
-                            MPM.addPass(FMIC::FmiCheck(llvm::errs()));
-                            return true;
-                        }
-                        return false;
-                    });
-        }};
-}
+/* llvm::PassPluginLibraryInfo getFmiCheckPluginInfo() { */
+/*     return {LLVM_PLUGIN_API_VERSION, "FmiCheck", LLVM_VERSION_STRING, */
+/*         [](PassBuilder &PB) { */
+/*             PB.registerPipelineParsingCallback( */
+/*                     [](StringRef Name, ModulePassManager &MPM, */
+/*                        ArrayRef<PassBuilder::PipelineElement>) { */
+/*                         if (Name == "fmi-check") { */
+/*                             MPM.addPass(FMIC::FmiCheck(llvm::errs())); */
+/*                             return true; */
+/*                         } */
+/*                         return false; */
+/*                     }); */
+/*         }}; */
+/* } */
 
 // This is the core interface for pass plugins. It guarantees that 'opt' will
 // be able to recognize HelloWorld when added to the pass pipeline on the
 // command line, i.e. via '-passes=hello-world'
-extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
-llvmGetPassPluginInfo() {
-    return getFmiCheckPluginInfo();
-}
+/* extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo */
+/* llvmGetPassPluginInfo() { */
+/*     return getFmiCheckPluginInfo(); */
+/* } */
 //
 //-----------------------------------------------------------------------------
 // Legacy PM Registration
 //-----------------------------------------------------------------------------
 // The address of this variable is used to uniquely identify the pass. The
 // actual value doesn't matter.
-char LegacyFmiCheck::ID = 0;
+/* char LegacyFmiCheck::ID = 0; */
 
 // This is the core interface for pass plugins. It guarantees that 'opt' will
 // recognize LegacyHelloWorld when added to the pass pipeline on the command
 // line, i.e.  via '--legacy-hello-world'
-static RegisterPass<LegacyFmiCheck>
-X("legacy-fmi-check", "Fmi Check Pass",
-  true, // This pass doesn't modify the CFG => true
-  false // This pass is not a pure analysis pass => false
-  );
+/* static RegisterPass<LegacyFmiCheck> */
+/* X("legacy-fmi-check", "Fmi Check Pass", */
+/*   true, // This pass doesn't modify the CFG => true */
+/*   false // This pass is not a pure analysis pass => false */
+/*   ); */

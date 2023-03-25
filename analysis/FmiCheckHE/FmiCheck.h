@@ -17,7 +17,7 @@ namespace FMIC {
         explicit FmiCheck(llvm::raw_ostream &OutS) : OS(OutS) {}
 
 
-        llvm::PreservedAnalyses run(Module &F, ModuleAnalysisManager &);
+        llvm::PreservedAnalyses run(Module &F, ModuleAnalysisManager &MAM);
 
         // Part of the official API:
         //  https://llvm.org/docs/WritingAnLLVMNewPMPass.html#required-passes
