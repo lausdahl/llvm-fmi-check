@@ -85,6 +85,7 @@ AllocaInst *getInstanceAlloc(Value *val) {
     } else if (auto inst = dyn_cast<LoadInst>(val)) {
         return getInstanceAlloc(inst->getPointerOperand());
     } else if (auto inst = dyn_cast<GEPOperator>(val)) {
+        // if struct member then alloc inst of containing struct
         return getInstanceAlloc(inst->getPointerOperand());
     } else {
         return nullptr;
@@ -92,8 +93,7 @@ AllocaInst *getInstanceAlloc(Value *val) {
 }
 
 bool isSameAllocInst(Value* val1, Value* val2, AAResults &AA) {
-    // Assuming local alloca (stack) for each instance, not re-assigned, and
-    // if struct member then identified by containing struct.
+    // assume local stack alloc for each instance; and not re-assigned
     AllocaInst* a1 = getInstanceAlloc(val1);
     AllocaInst* a2 = getInstanceAlloc(val2);
     if (a1 && a2 && AA.isMustAlias(a1,a2)) {
