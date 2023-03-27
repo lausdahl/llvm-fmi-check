@@ -151,7 +151,6 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
             }
         }
     }
-    dumpInstanceMap();
 }
 
 } // namespace
