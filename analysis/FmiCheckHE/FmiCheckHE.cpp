@@ -32,9 +32,13 @@
 #include "llvm/Demangle/Demangle.h"
 #include <cstdlib>
 #include <llvm/ADT/APInt.h>
+#include <llvm/Analysis/AliasAnalysis.h>
+#include <llvm/Analysis/InlineCost.h>
+#include <llvm/IR/DiagnosticInfo.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/PassManager.h>
+#include <llvm/IR/Value.h>
 #include <string>
 #include <unordered_map>
 
@@ -47,93 +51,18 @@ using namespace llvm;
 // everything in an anonymous namespace.
 namespace {
 
-std::string FMU[] = {
-    "DUMMY",
-    /***************************************************
-            Common Functions
-            ****************************************************/
-    "getTypesPlatform",
-    "getVersion",
-    "setDebugLogging",
-    "instantiate",
-    "freeInstance",
-    "setupExperiment",
-    "enterInitializationMode",
-    "exitInitializationMode",
-    "terminate",
-    "reset",
-    "getReal",
-    "getInteger",
-    "getBoolean",
-    "getString",
-    "setReal",
-    "setInteger",
-    "setBoolean",
-    "setString",
-    "getFMUstate",
-    "setFMUstate",
-    "freeFMUstate",
-    "serializedFMUstateSize",
-    "serializeFMUstate",
-    "deSerializeFMUstate",
-    "getDirectionalDerivative",
-    /***************************************************
-            Functions for FMI2 for Co-Simulation
-            ****************************************************/
-    "setRealInputDerivatives",
-    "getRealOutputDerivatives",
-    "doStep",
-    "cancelStep",
-    "getStatus",
-    "getRealStatus",
-    "getIntegerStatus",
-    "getBooleanStatus",
-    "getStringStatus",
-
-    //INTO CPS specific
-    "getMaxStepsize",
-    /***************************************************
-            Functions for FMI2 for Model Exchange
-            ****************************************************/
-    "enterEventMode",
-    "newDiscreteStates",
-    "enterContinuousTimeMode",
-    "completedIntegratorStep",
-    "setTime",
-    "setContinuousStates",
-    "getDerivatives",
-    "getEventIndicators",
-    "getContinuousStates",
-    "getNominalsOfContinuousStates",
-};
-
-std::map<Value*, Value*> storeMap;
-std::map<Value*, Value*> loadMap;
-
 std::map<Value*, int> instanceMap;
+int instanceId;
 
-void dumpStoreMap(){
-    errs() << "==== Stores map ====\n";
-    for(std::map<Value*, Value*>::iterator it = storeMap.begin(); it!=storeMap.end(); it++){
-        errs() << "Value : " << it ->first;
+void dumpInstanceMap(){
+    errs() << "==== Instance map ==== \n";
+    for(std::map<Value*, int>::iterator it = instanceMap.begin(); it!=instanceMap.end(); it++){
         it->first->dump();
-        errs() << " points to : " << it->second;
-        it->second->dump();
-    }
-}
-
-void dumpLoadMap(){
-    errs() << "==== Loads map ==== \n";
-    for(std::map<Value*, Value*>::iterator it = loadMap.begin(); it!=loadMap.end(); it++){
-        errs() << "Value : " << it->first;
-        it->first->dump();
-        errs() << " points to : " << it->second;
-        it->second->dump();
+        errs() << " points to : " << it->second << "\n";
     }
 }
 
 void findGlobalAnnotations(Module &M) {
-
     // first add direct function annotations to function objects
     auto global_annos = M.getNamedGlobal("llvm.global.annotations");
     if (global_annos) {
@@ -150,20 +79,49 @@ void findGlobalAnnotations(Module &M) {
     }
 }
 
+AllocaInst *getInstanceAlloc(Value *val) {
+    if (auto inst = dyn_cast<AllocaInst>(val)) {
+        return inst;
+    } else if (auto inst = dyn_cast<LoadInst>(val)) {
+        return getInstanceAlloc(inst->getPointerOperand());
+    } else if (auto inst = dyn_cast<GEPOperator>(val)) {
+        return getInstanceAlloc(inst->getPointerOperand());
+    } else {
+        return nullptr;
+    }
+}
+
+bool isSameAllocInst(Value* val1, Value* val2, AAResults &AA) {
+    // Assuming local alloca (stack) for each instance, not re-assigned, and
+    // if struct member then identified by containing struct.
+    AllocaInst* a1 = getInstanceAlloc(val1);
+    AllocaInst* a2 = getInstanceAlloc(val2);
+    if (a1 && a2 && AA.isMustAlias(a1,a2)) {
+        return true;
+    }
+    return false;
+}
+
+int getInstanceId(Value* val, AAResults &AA) {
+    for(std::map<Value*, int>::iterator it = instanceMap.begin(); it!=instanceMap.end(); it++){
+        if (AA.isMustAlias(val, it->first) || isSameAllocInst(val, it->first, AA)) {
+           return it->second;
+        }
+    }
+    instanceMap[val] = ++instanceId;
+    return instanceId;
+}
+
 // This method implements what the pass does
 void visitor(Module &M, ModuleAnalysisManager &MAM) {
-
     FunctionAnalysisManager &FAM =
         MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
 
     for (auto &F: M) {
-
         // disregard function builtins and declarations
         if(F.isIntrinsic() || F.isDeclaration()){
             continue;
         }
-
-        /* errs() << "Function: " << demangle(Func.getName().str()) << "\n"; */
 
         // get the alias analysis results
         AAResults &AA = FAM.getResult<AAManager>(F);
@@ -178,9 +136,13 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
                                 if (iinst->getIntrinsicID() == Intrinsic::ptr_annotation){
                                     auto carr = (ConstantArray *)iinst->getOperand(1);
                                     auto str = ((ConstantDataArray *)(carr)->getOperand(0))->getAsCString();
-                                    errs() << str << "\n";
-                                    errs() << AA.alias(inst, inst) << "\n";
-                                    errs() << AA.alias(inst, linst) << "\n";
+                                    if(LoadInst* linstp = dyn_cast<LoadInst>(inst->getOperand(0))) {
+                                        auto instance = linstp->getPointerOperand();
+                                        auto instance_id = getInstanceId(instance, AA);
+                                        errs() << str << "(" << instance_id << ")" << "\n";
+                                    } else {
+                                        errs() << str << "\n";
+                                    }
                                 }
                             }
                         }
@@ -189,6 +151,7 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
             }
         }
     }
+    dumpInstanceMap();
 }
 
 } // namespace

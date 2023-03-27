@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 #include <cstring>
 #include <algorithm>
@@ -6,22 +7,22 @@ using namespace std;
 
 #define MYATTR(x) __attribute__ ((annotate(x)))
 
-typedef int(*func1_t)(int);
-typedef int(*func2_t)(int, int);
-typedef int(*func3_t)(int, int, int);
+typedef int(*func1_t)(void*, int);
+typedef int(*func2_t)(void*, int, int);
+typedef int(*func3_t)(void*, int, int, int);
 
 // annotation here only needed if function directly referenced as global
-int foo1(int p) MYATTR("func1") {
+int foo1(void *c, int p) MYATTR("func1") {
     return p*2;
 }
 
 // annotation here only needed if function directly referenced as global
-int foo2(int p, int q) MYATTR("func2") {
+int foo2(void *c, int p, int q) MYATTR("func2") {
     return p + q;
 }
 
 // annotation here only needed if function directly referenced as global
-int foo3(int p, int q, int r) MYATTR("func3") {
+int foo3(void *c, int p, int q, int r) MYATTR("func3") {
     return p + q + r;
 }
 
@@ -33,7 +34,7 @@ typedef struct _func_tbl_t {
 
 typedef struct _instance_t {
     func_tbl_t *ft;
-    int comp;
+    void *comp;
 } instance_t;
 
 int main(int argc, char *argv[]) {
@@ -55,25 +56,41 @@ int main(int argc, char *argv[]) {
     /* func3_t f3 = &foo3; */
     /* f3(1,2,3); */
 
-    instance_t inst1;
-    inst1.ft = (func_tbl_t*)malloc(sizeof(func_tbl_t));
-    inst1.ft->f1 = &foo1;
-    inst1.ft->f2 = &foo2;
-    inst1.ft->f3 = &foo3;
-    inst1.comp = 1;
-    inst1.ft->f1(inst1.comp);
-    inst1.ft->f2(inst1.comp,2);
-    inst1.ft->f3(inst1.comp,2,3);
+    instance_t* inst1 = (instance_t*)malloc(sizeof(instance_t));
+    inst1->ft = (func_tbl_t*)malloc(sizeof(func_tbl_t));
+    inst1->ft->f1 = &foo1;
+    inst1->ft->f2 = &foo2;
+    inst1->ft->f3 = &foo3;
+    inst1->ft->f1(inst1->comp,1);
+    inst1->ft->f2(inst1->comp,1,2);
+    inst1->ft->f3(inst1->comp,1,2,3);
 
-    instance_t inst2;
-    inst2.ft = (func_tbl_t*)malloc(sizeof(func_tbl_t));
-    inst2.ft->f1 = &foo1;
-    inst2.ft->f2 = &foo2;
-    inst2.ft->f3 = &foo3;
-    inst2.comp = 1;
-    inst2.ft->f1(inst2.comp);
-    inst2.ft->f2(inst2.comp,2);
-    inst2.ft->f3(inst2.comp,2,3);
+    instance_t* inst2 = (instance_t*)malloc(sizeof(instance_t));
+    inst2->ft = (func_tbl_t*)malloc(sizeof(func_tbl_t));
+    inst2->ft->f1 = &foo1;
+    inst2->ft->f2 = &foo2;
+    inst2->ft->f3 = &foo3;
+    inst2->ft->f1(inst2->comp,1);
+    inst2->ft->f2(inst2->comp,1,2);
+    inst2->ft->f3(inst2->comp,1,2,3);
+
+    /* MYATTR("instance")instance_t inst1; */
+    /* inst1.ft = (func_tbl_t*)malloc(sizeof(func_tbl_t)); */
+    /* inst1.ft->f1 = &foo1; */
+    /* inst1.ft->f2 = &foo2; */
+    /* inst1.ft->f3 = &foo3; */
+    /* inst1.ft->f1(inst1.comp,1); */
+    /* inst1.ft->f2(inst1.comp,1,2); */
+    /* inst1.ft->f3(inst1.comp,1,2,3); */
+
+    /* MYATTR("instance")instance_t inst2; */
+    /* inst2.ft = (func_tbl_t*)malloc(sizeof(func_tbl_t)); */
+    /* inst2.ft->f1 = &foo1; */
+    /* inst2.ft->f2 = &foo2; */
+    /* inst2.ft->f3 = &foo3; */
+    /* inst2.ft->f1(inst2.comp,1); */
+    /* inst2.ft->f2(inst2.comp,1,2); */
+    /* inst2.ft->f3(inst2.comp,1,2,3); */
     /* func_tbl_t *ft = (func_tbl_t*)malloc(sizeof(func_tbl_t)); */
     /* /1* func_tbl2_t ft; *1/ */
     /* ft->f1 = &foo1; */
