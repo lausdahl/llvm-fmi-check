@@ -29,6 +29,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Analysis/MemorySSA.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Demangle/Demangle.h"
 #include <cstdlib>
 #include <llvm/ADT/APInt.h>
@@ -123,10 +124,13 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
             continue;
         }
 
-        // get the alias analysis results
+        // get the alias and loop analysis results
         AAResults &AA = FAM.getResult<AAManager>(F);
+        LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
 
         for (auto &BB: F) {
+            auto *loop = LI.getLoopFor(&BB);
+            bool inLoop = (loop != nullptr) ? true : false;
             for (auto &Ins: BB) {
                 if (auto *inst = dyn_cast<CallBase>(&Ins)) {
                     if (inst->isIndirectCall()) {
@@ -139,9 +143,9 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
                                     if(LoadInst* linstp = dyn_cast<LoadInst>(inst->getOperand(0))) {
                                         auto instance = linstp->getPointerOperand();
                                         auto instance_id = getInstanceId(instance, AA);
-                                        errs() << str << "(" << instance_id << ")" << "\n";
+                                        errs() << str << "(" << instance_id << ")" << " inLoop=" << inLoop << "\n";
                                     } else {
-                                        errs() << str << "\n";
+                                        errs() << str << " inLoop=" << inLoop << "\n";
                                     }
                                 }
                             }
