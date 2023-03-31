@@ -3,5 +3,9 @@ project(llvm-fmi-check)
 
 
 add_subdirectory(analysis)
-add_subdirectory(examples/initialize_singleWaterTank/cpp)
+
+# ONLY add one of the two subdirs
+# add_subdirectory(examples/initialize_singleWaterTank/cpp)
+add_subdirectory(examples/drobotti/cpp)
+
 add_subdirectory(examples/fmicall)
