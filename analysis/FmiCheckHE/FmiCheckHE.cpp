@@ -33,6 +33,7 @@
 #include "llvm/Demangle/Demangle.h"
 #include <cstdlib>
 #include <llvm/ADT/APInt.h>
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/InlineCost.h>
 #include <llvm/IR/DiagnosticInfo.h>
@@ -42,6 +43,7 @@
 #include <llvm/IR/Value.h>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 using namespace llvm;
 
@@ -52,8 +54,51 @@ using namespace llvm;
 // everything in an anonymous namespace.
 namespace {
 
+typedef struct _fmiCall {
+    StringRef name;
+    int instance;
+    std::vector<int> vrefs; // for fmi2Get and fmi2Set
+    Loop *enclosingLoop;
+} fmiCall;
+
 std::map<Value*, int> instanceMap;
 int instanceId;
+
+std::vector<fmiCall> fmiCallList;
+
+void dumpFmiCallList(){
+    errs() << "==== FmiCall List ==== \n";
+    bool firstInLoop = true;
+    bool lastInLoop = true;
+    for(auto &call: fmiCallList){
+        if (firstInLoop && call.enclosingLoop != nullptr) {
+            errs() << "cosim-loop [\n";
+            firstInLoop = false;
+        }
+        if (call.enclosingLoop != nullptr) {
+            errs() << "    ";
+        } else {
+            if (!firstInLoop && lastInLoop) {
+                errs() << "]\n";
+                lastInLoop = false;
+            }
+        }
+        errs() << call.name << "(";
+        errs() << call.instance;
+        if (call.vrefs.size() > 0) {
+            errs() << ", [";
+            for (auto &v : call.vrefs) {
+                if (v != call.vrefs.back()) {
+                    errs() << v << ", ";
+                } else {
+                    errs() << v;
+                }
+            }
+            errs() << "]";
+        }
+        errs() << ")\n";
+    }
+}
 
 void dumpInstanceMap(){
     errs() << "==== Instance map ==== \n";
@@ -78,6 +123,25 @@ void findGlobalAnnotations(Module &M) {
             }
         }
     }
+}
+
+bool checkCoSimLoopInFmiCallList(void) {
+    fmiCall* doStepCall = nullptr;
+    for(fmiCall call: fmiCallList){
+        if (call.name.compare("fmi2DoStep") == 0 && call.enclosingLoop != nullptr) {
+            doStepCall = &call;
+            break;
+        }
+    }
+    if (doStepCall == nullptr) {
+        return false;
+    }
+    for(fmiCall call: fmiCallList){
+        if (call.enclosingLoop != nullptr && call.enclosingLoop != doStepCall->enclosingLoop) {
+            return false;
+        }
+    }
+    return true;
 }
 
 AllocaInst *getInstanceAlloc(Value *val) {
@@ -129,9 +193,24 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
         LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
 
         for (auto &BB: F) {
+            std::map<Value*, std::vector<int>> vrefMap;
+
             auto *loop = LI.getLoopFor(&BB);
-            bool inLoop = (loop != nullptr) ? true : false;
             for (auto &Ins: BB) {
+
+                if(auto* inst = dyn_cast<StoreInst>(&Ins)){
+                    if (auto *gepInst = dyn_cast<GEPOperator>(inst->getPointerOperand())) {
+                        Value* pointOp = gepInst->getPointerOperand();
+                        Value* valOp = inst->getValueOperand()->stripPointerCasts();
+                        if (ConstantInt *CI = dyn_cast<ConstantInt>(valOp)) {
+                            if (CI->getBitWidth() <= 32) {
+                                int i = CI->getSExtValue();
+                                vrefMap[pointOp].push_back(i);
+                            }
+                        }
+                    }
+                }
+
                 if (auto *inst = dyn_cast<CallBase>(&Ins)) {
                     if (inst->isIndirectCall()) {
                         if(LoadInst* linst = dyn_cast<LoadInst>(inst->getCalledOperand())) {
@@ -140,12 +219,20 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
                                 if (iinst->getIntrinsicID() == Intrinsic::ptr_annotation){
                                     auto carr = (ConstantArray *)iinst->getOperand(1);
                                     auto str = ((ConstantDataArray *)(carr)->getOperand(0))->getAsCString();
+                                    std::vector<int> store;
+                                    if (str.contains("fmi2Get") || str.contains("fmi2Set")) {
+                                        if (auto *gepInst = dyn_cast<GEPOperator>(inst->getOperand(1))) {
+                                            Value* pointOp = gepInst->getPointerOperand();
+                                            store = vrefMap[pointOp];
+                                        }
+                                    }
                                     if(LoadInst* linstp = dyn_cast<LoadInst>(inst->getOperand(0))) {
                                         auto instance = linstp->getPointerOperand();
                                         auto instance_id = getInstanceId(instance, AA);
-                                        errs() << str << "(" << instance_id << ")" << " inLoop=" << inLoop << "\n";
+                                        fmiCall call = {str, instance_id, store, loop};
+                                        fmiCallList.push_back(call);
                                     } else {
-                                        errs() << str << " inLoop=" << inLoop << "\n";
+                                        errs() << str << "******\n";
                                     }
                                 }
                             }
@@ -161,6 +248,11 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
 
 PreservedAnalyses FMIC::FmiCheck::run(Module &M, ModuleAnalysisManager &MAM) {
     visitor(M, MAM);
+    if (checkCoSimLoopInFmiCallList()) {
+        dumpFmiCallList();
+    } else {
+        errs() << "Error in checkCoSimLoopInFmiCallList()\n";
+    }
     return PreservedAnalyses::none();
 }
 
