@@ -49,7 +49,7 @@ int main(int Argc, char **Argv) {
     for (unsigned i = 0; i != InputModules.size(); ++i) {
 
         // Parse the IR file passed on the command line.
-        errs() << InputModules[i] << "\n";
+        /* errs() << InputModules[i] << "\n"; */
 
         SMDiagnostic Err;
         LLVMContext Ctx;

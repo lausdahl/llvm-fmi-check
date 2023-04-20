@@ -41,6 +41,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -59,6 +60,7 @@ typedef struct _fmiCall {
     int instance;
     std::vector<int> vrefs; // for fmi2Get and fmi2Set
     Loop *enclosingLoop;
+    bool init;
 } fmiCall;
 
 std::map<Value*, int> instanceMap;
@@ -97,6 +99,62 @@ void dumpFmiCallList(){
             errs() << "]";
         }
         errs() << ")\n";
+    }
+}
+
+std::map<StringRef, StringRef> nameMap = {
+    {"fmi2GetReal", "get"},
+    {"fmi2SetReal", "set"},
+    {"fmi2DoStep", "step"}
+};
+
+void dumpConf() {
+    bool firstInLoop = true;
+    bool lastInLoop = true;
+    StringRef indent = "";
+    bool firstInInit = true;
+    bool lastInInit = true;
+    for(auto &call: fmiCallList) {
+        if (firstInLoop && call.enclosingLoop != nullptr) {
+            errs() << "cosim-step = {\n    cosim-step1 =\n        [\n";
+            firstInLoop = false;
+        }
+        if (call.enclosingLoop != nullptr) {
+            indent = "            ";
+        } else {
+            if (!firstInLoop && lastInLoop) {
+                errs() << "        ]\n";
+                errs() << "}\n";
+                lastInLoop = false;
+                indent = "";
+            }
+        }
+
+        if (firstInInit && call.init == true) {
+            errs() << "initialization = [\n";
+            firstInInit = false;
+        }
+        if (call.init == true) {
+            indent = "    ";
+        } else {
+            if (!firstInInit && lastInInit) {
+                errs() << "]\n";
+                lastInInit = false;
+                indent = "";
+            }
+        }
+
+        if (nameMap.find(call.name) == nameMap.end() || (!call.init && call.enclosingLoop == nullptr)) {
+            continue;
+        }
+
+        if (call.vrefs.size() > 0) {
+            for (auto &v : call.vrefs) {
+                errs() << indent << "{" << nameMap[call.name] << ": i" << call.instance << ".v" << v << "}\n" ;
+            }
+        } else {
+            errs() << indent << "{" << nameMap[call.name] << ": i" << call.instance << "}\n" ;
+        }
     }
 }
 
@@ -142,6 +200,23 @@ bool checkCoSimLoopInFmiCallList(void) {
         }
     }
     return true;
+}
+
+bool checkAndSetInitialization(void) {
+    int inInit = 0;
+
+    for (fmiCall &call: fmiCallList) {
+        if (call.name.compare("fmi2EnterInitializationMode") == 0) {
+            inInit++;
+        }
+        if (call.name.compare("fmi2ExitInitializationMode") == 0) {
+            inInit--;
+        }
+        if (inInit > 0) {
+            call.init = true;
+        }
+    }
+    return inInit == 0;
 }
 
 AllocaInst *getInstanceAlloc(Value *val) {
@@ -219,17 +294,17 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
                                 if (iinst->getIntrinsicID() == Intrinsic::ptr_annotation){
                                     auto carr = (ConstantArray *)iinst->getOperand(1);
                                     auto str = ((ConstantDataArray *)(carr)->getOperand(0))->getAsCString();
-                                    std::vector<int> store;
+                                    std::vector<int> vrefs;
                                     if (str.contains("fmi2Get") || str.contains("fmi2Set")) {
                                         if (auto *gepInst = dyn_cast<GEPOperator>(inst->getOperand(1))) {
                                             Value* pointOp = gepInst->getPointerOperand();
-                                            store = vrefMap[pointOp];
+                                            vrefs = vrefMap[pointOp];
                                         }
                                     }
                                     if(LoadInst* linstp = dyn_cast<LoadInst>(inst->getOperand(0))) {
                                         auto instance = linstp->getPointerOperand();
                                         auto instance_id = getInstanceId(instance, AA);
-                                        fmiCall call = {str, instance_id, store, loop};
+                                        fmiCall call = {str, instance_id, vrefs, loop, false};
                                         fmiCallList.push_back(call);
                                     } else {
                                         errs() << str << "******\n";
@@ -248,8 +323,9 @@ void visitor(Module &M, ModuleAnalysisManager &MAM) {
 
 PreservedAnalyses FMIC::FmiCheck::run(Module &M, ModuleAnalysisManager &MAM) {
     visitor(M, MAM);
-    if (checkCoSimLoopInFmiCallList()) {
-        dumpFmiCallList();
+    if (checkCoSimLoopInFmiCallList() && checkAndSetInitialization()) {
+        /* dumpFmiCallList(); */
+        dumpConf();
     } else {
         errs() << "Error in checkCoSimLoopInFmiCallList()\n";
     }
